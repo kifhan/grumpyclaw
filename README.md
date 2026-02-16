@@ -87,7 +87,42 @@ Core defaults:
 
 Plain text input runs `grumpyclaw.ask`.
 
-## 5. End-to-end quick check
+## 5. grumpyadmin (FastAPI + React)
+
+`grumpyadmin` is a dev-mode web admin app for chat + management.
+
+Warning:
+- Auth is disabled in v1 (dev-only). Do not expose to public networks.
+
+Backend API:
+- Install/refresh deps:
+  - `uv sync`
+- Run API server:
+  - `uv run grumpyadmin-api`
+- API base:
+  - `http://localhost:8000/api/v1`
+
+Frontend web app:
+- `cd web`
+- `npm install`
+- `npm run dev`
+- Open:
+  - `http://localhost:5173`
+
+Main pages:
+- `/chat` unified `grumpyclaw` and `grumpyreachy` chat (SSE streaming)
+- `/runtime` start/stop/restart runtime scripts
+- `/robot` robot action controls (rate-limited with confirm checks)
+- `/memory`, `/skills`, `/heartbeat`, `/logs`
+
+`/api/v1/logs` supports structured filters:
+- `source=runtime|robot`
+- `level=DEBUG|INFO|WARNING|ERROR`
+- `process_name=...`
+- `event_type=...`
+- `q=...` (substring search in payload/reason)
+
+## 6. End-to-end quick check
 
 1. Start app:
    - `uv run grumpyreachy-run`
@@ -98,7 +133,7 @@ Plain text input runs `grumpyclaw.ask`.
    - `message`
    - `context.latest_observations`
 
-## 6. Notes
+## 7. Notes
 
 - First embedding call may download model files for FastEmbed.
 - If embedding init logs ONNX GPU discovery warnings on Linux headless devices, set `GRUMPYCLAW_EMBEDDING_PROVIDERS=CPUExecutionProvider`.
@@ -106,7 +141,7 @@ Plain text input runs `grumpyclaw.ask`.
 - On Windows, Hugging Face cache may warn about symlink support; this is non-fatal.
 - Stop long-running processes with `Ctrl+C`.
 
-## 7. Run on boot (systemd)
+## 8. Run on boot (systemd)
 
 Assumes project at `/home/darter/grumpyclaw` and user `darter`. Install unit files into `/etc/systemd/system/`, then enable and start.
 
@@ -169,7 +204,7 @@ sudo journalctl -u grumpyreachy-run.service -f
 
 `uv` is assumed at `/home/darter/.local/bin/uv`; adjust `ExecStart` if your path differs.
 
-## 8. Cron (periodic heartbeat)
+## 9. Cron (periodic heartbeat)
 
 Heartbeat commands are one-shot; use cron (or a systemd timer) to run them on a schedule, e.g. every 15 minutes:
 

@@ -7,6 +7,7 @@ reachy_mini/
 .env
 config/
 data/
+*.db
 
 __pycache__
 *.pyc
@@ -21,3 +22,8 @@ build/
 .idea/
 *.swp
 *.swo
+
+# Web
+web/node_modules/
+web/dist/
+
