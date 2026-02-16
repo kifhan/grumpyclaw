@@ -7,3 +7,7 @@ reachy_mini/
 .env
 config/
 data/
+
+*/__pycache__/
+**/__pycache__/
+*.pyc
