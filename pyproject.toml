@@ -1,0 +1,31 @@
+[project]
+name = "grumpyclaw"
+version = "0.1.0"
+description = "Personal AI agent: SQLite + Markdown memory, heartbeat, Slack + terminal."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastembed>=0.3.0",
+    "numpy>=1.24.0",
+    "google-api-python-client>=2.100.0",
+    "google-auth-oauthlib>=1.1.0",
+    "google-auth-httplib2>=0.1.1",
+    "openai>=1.0.0",
+    "slack-sdk>=3.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+sync-google-docs = "grumpyclaw.scripts.sync_google_docs:main"
+heartbeat = "grumpyclaw.scripts.heartbeat:main"
+chat = "grumpyclaw.scripts.chat:main"
+slack-bot = "grumpyclaw.scripts.slack_bot:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/grumpyclaw"]

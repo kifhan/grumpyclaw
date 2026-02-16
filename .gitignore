@@ -1,0 +1,7 @@
+openclaw/
+reachy_mini/
+.venv/
+
+.DS_Store
+
+.env
