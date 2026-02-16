@@ -5,3 +5,4 @@ reachy_mini/
 .DS_Store
 
 .env
+config/

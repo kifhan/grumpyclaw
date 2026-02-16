@@ -18,11 +18,11 @@ def _get_config() -> tuple[str, str, str]:
     if opencode_key:
         api_key = opencode_key
         base_url = base_url or "https://opencode.ai/zen/v1"
-        model = model or "opencode/gpt-4o-mini"
+        model = model or "opencode/gpt-5-nano"
     elif openai_key:
         api_key = openai_key
         base_url = base_url or "https://api.openai.com/v1"
-        model = model or "gpt-4o-mini"
+        model = model or "gpt-5-nano"
     else:
         raise ValueError(
             "Set OPENCODE_API_KEY or OPENAI_API_KEY (and optionally LLM_BASE_URL, LLM_MODEL)"
