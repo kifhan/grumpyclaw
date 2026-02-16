@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import sqlite3
 from pathlib import Path
@@ -71,7 +72,16 @@ class Retriever:
     def _get_model(self):
         if self._model is None:
             from fastembed import TextEmbedding
-            self._model = TextEmbedding(model_name=self.embedding_model, max_length=512)
+            providers_raw = os.environ.get("GRUMPYCLAW_EMBEDDING_PROVIDERS", "CPUExecutionProvider").strip()
+            providers = None if not providers_raw or providers_raw.lower() == "auto" else [
+                p.strip() for p in providers_raw.split(",") if p.strip()
+            ]
+            self._model = TextEmbedding(
+                model_name=self.embedding_model,
+                max_length=512,
+                providers=providers,
+                cuda=False,
+            )
         return self._model
 
     def hybrid_search(

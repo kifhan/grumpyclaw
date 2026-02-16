@@ -99,6 +99,8 @@ Plain text input runs `grumpyclaw.ask`.
 ## 6. Notes
 
 - First embedding call may download model files for FastEmbed.
+- If embedding init logs ONNX GPU discovery warnings on Linux headless devices, set `GRUMPYCLAW_EMBEDDING_PROVIDERS=CPUExecutionProvider`.
+- If first embedding call fails with `Connection error`, ensure outbound network access to Hugging Face model download endpoints (or pre-warm the model cache).
 - On Windows, Hugging Face cache may warn about symlink support; this is non-fatal.
 - Stop long-running processes with `Ctrl+C`.
 

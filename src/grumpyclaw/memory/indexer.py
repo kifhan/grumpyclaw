@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -46,7 +47,16 @@ class Indexer:
     def _get_model(self):
         if self._model is None:
             from fastembed import TextEmbedding
-            self._model = TextEmbedding(model_name=self.embedding_model, max_length=512)
+            providers_raw = os.environ.get("GRUMPYCLAW_EMBEDDING_PROVIDERS", "CPUExecutionProvider").strip()
+            providers = None if not providers_raw or providers_raw.lower() == "auto" else [
+                p.strip() for p in providers_raw.split(",") if p.strip()
+            ]
+            self._model = TextEmbedding(
+                model_name=self.embedding_model,
+                max_length=512,
+                providers=providers,
+                cuda=False,
+            )
         return self._model
 
     def delete_by_source(self, source_type: str, source_id: str) -> None:
