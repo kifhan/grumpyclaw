@@ -8,6 +8,16 @@ reachy_mini/
 config/
 data/
 
-*/__pycache__/
-**/__pycache__/
+__pycache__
 *.pyc
+
+# Build / package
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Editor / IDE
+.idea/
+*.swp
+*.swo

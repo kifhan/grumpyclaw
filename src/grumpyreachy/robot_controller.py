@@ -5,6 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+try:
+    from reachy_mini.motion.recorded_move import RecordedMoves
+except Exception:  # pragma: no cover - optional dependency in no-robot mode
+    RecordedMoves = None  # type: ignore[assignment]
+
 
 class RobotController:
     """Thin wrapper around ReachyMini with guarded operations."""
@@ -12,6 +17,22 @@ class RobotController:
     def __init__(self, mini: Any | None = None):
         self._mini = mini
         self._log = logging.getLogger("grumpyreachy.robot")
+        self._builtin_motion_index: dict[str, tuple[str, str]] | None = None
+        self._builtin_motion_catalogs: dict[str, Any] = {}
+        self._builtin_motion_load_attempted = False
+
+    _MOTION_DATASETS = {
+        "emotions": "pollen-robotics/reachy-mini-emotions-library",
+        "dances": "pollen-robotics/reachy-mini-dances-library",
+    }
+
+    _MOTION_CANDIDATES = {
+        "nod": ("nod", "yes", "affirmative"),
+        "attention": ("attention", "curious", "listening", "interested"),
+        "success": ("success", "happy", "celebrate", "joy"),
+        "error": ("error", "sad", "angry", "confused"),
+        "neutral": ("neutral", "idle", "calm", "rest"),
+    }
 
     @property
     def connected(self) -> bool:
@@ -22,7 +43,7 @@ class RobotController:
             self._log.info("look_at skipped (robot not connected): (%s, %s, %s)", x, y, z)
             return
         try:
-            self._mini.look_at_world([x, y, z], duration=duration)
+            self._mini.look_at_world(x=x, y=y, z=z, duration=duration)
         except Exception:
             self._log.exception("look_at failed")
 
@@ -30,10 +51,12 @@ class RobotController:
         if not self._mini:
             self._log.info("nod skipped (robot not connected)")
             return
+        if self._play_builtin_motion(self._MOTION_CANDIDATES["nod"], initial_goto_duration=0.25):
+            return
         try:
-            self._mini.look_at_world([0.35, 0.0, -0.05], duration=0.25)
-            self._mini.look_at_world([0.35, 0.0, 0.15], duration=0.25)
-            self._mini.look_at_world([0.35, 0.0, 0.05], duration=0.25)
+            self._mini.look_at_world(x=0.35, y=0.0, z=-0.05, duration=0.25)
+            self._mini.look_at_world(x=0.35, y=0.0, z=0.15, duration=0.25)
+            self._mini.look_at_world(x=0.35, y=0.0, z=0.05, duration=0.25)
         except Exception:
             self._log.exception("nod failed")
 
@@ -47,6 +70,11 @@ class RobotController:
             "error": [-0.25, 0.25],
             "neutral": [0.0, 0.0],
         }
+        if self._play_builtin_motion(
+            self._MOTION_CANDIDATES.get(state, self._MOTION_CANDIDATES["neutral"]),
+            initial_goto_duration=0.2,
+        ):
+            return
         target = patterns.get(state, patterns["neutral"])
         try:
             self._mini.set_target_antenna_joint_positions(target)
@@ -59,3 +87,73 @@ class RobotController:
 
     def neutral_pose(self) -> None:
         self.antenna_feedback("neutral")
+
+    def _play_builtin_motion(
+        self, candidates: tuple[str, ...], initial_goto_duration: float = 0.25
+    ) -> bool:
+        if not self._mini or not hasattr(self._mini, "play_move"):
+            return False
+
+        match = self._find_builtin_motion(candidates)
+        if match is None:
+            return False
+
+        dataset_key, move_name = match
+        catalog = self._builtin_motion_catalogs.get(dataset_key)
+        if catalog is None:
+            return False
+
+        try:
+            self._mini.play_move(
+                catalog.get(move_name),
+                initial_goto_duration=initial_goto_duration,
+            )
+            return True
+        except Exception:
+            self._log.exception("Built-in motion playback failed: %s/%s", dataset_key, move_name)
+            return False
+
+    def _find_builtin_motion(self, candidates: tuple[str, ...]) -> tuple[str, str] | None:
+        if not self._ensure_builtin_motions_loaded():
+            return None
+        assert self._builtin_motion_index is not None
+
+        lowered_candidates = [candidate.lower() for candidate in candidates]
+
+        for candidate in lowered_candidates:
+            if candidate in self._builtin_motion_index:
+                return self._builtin_motion_index[candidate]
+
+        for name_lower, motion_ref in self._builtin_motion_index.items():
+            for candidate in lowered_candidates:
+                if candidate in name_lower:
+                    return motion_ref
+        return None
+
+    def _ensure_builtin_motions_loaded(self) -> bool:
+        if self._builtin_motion_index is not None:
+            return True
+        if self._builtin_motion_load_attempted:
+            return False
+
+        self._builtin_motion_load_attempted = True
+        if RecordedMoves is None:
+            self._log.debug("RecordedMoves unavailable; skipping built-in motion loading")
+            return False
+
+        try:
+            index: dict[str, tuple[str, str]] = {}
+            for dataset_key, dataset_name in self._MOTION_DATASETS.items():
+                catalog = RecordedMoves(dataset_name)
+                self._builtin_motion_catalogs[dataset_key] = catalog
+                for move_name in catalog.list_moves():
+                    index[move_name.lower()] = (dataset_key, move_name)
+            self._builtin_motion_index = index
+            if not index:
+                self._log.warning("Built-in motion datasets loaded but empty")
+                return False
+            self._log.info("Loaded %s built-in motions from Reachy datasets", len(index))
+            return True
+        except Exception:
+            self._log.exception("Failed to load built-in Reachy motions")
+            return False

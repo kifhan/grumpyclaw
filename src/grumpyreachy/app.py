@@ -162,12 +162,39 @@ class GrumpyReachyApp:
         self.log.debug("Unknown action ignored: %s", action.name)
 
     def _capture_observation_summary(self) -> str:
-        # Placeholder until camera/audio perception is wired in Phase 2-3.
         robot_state = "connected" if self._controller.connected else "disconnected"
+        camera_status = self._camera_analyzer_status()
+        audio_status = self._analyzer_status_from_config(self.config.audio_analyzer_enabled)
         return (
             "Environment heartbeat snapshot. "
-            f"Robot={robot_state}. No camera/audio analyzer connected yet."
+            f"Robot={robot_state}. CameraAnalyzer={camera_status}. AudioAnalyzer={audio_status}."
         )
+
+    def _camera_analyzer_status(self) -> str:
+        configured = self.config.camera_analyzer_enabled
+        if configured is not None:
+            return self._analyzer_status_from_config(configured)
+        if self._linux_camera_device_detected():
+            return "device_detected"
+        return "not_configured"
+
+    @staticmethod
+    def _analyzer_status_from_config(enabled: bool | None) -> str:
+        if enabled is True:
+            return "connected"
+        if enabled is False:
+            return "disconnected"
+        return "not_configured"
+
+    @staticmethod
+    def _linux_camera_device_detected() -> bool:
+        dev_dir = Path("/dev")
+        if not dev_dir.is_dir():
+            return False
+        try:
+            return any(dev_dir.glob("video*"))
+        except OSError:
+            return False
 
     def _on_observation_event(self, event: ObservationEvent) -> None:
         try:

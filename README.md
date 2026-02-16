@@ -34,6 +34,8 @@ Core defaults:
 - `GRUMPYREACHY_OBSERVE_INTERVAL=600`
 - `GRUMPYREACHY_FEEDBACK_ENABLED=true`
 - `GRUMPYREACHY_REACHY_MODE=lite`
+- optional: `GRUMPYREACHY_CAMERA_ANALYZER_ENABLED=true|false`
+- optional: `GRUMPYREACHY_AUDIO_ANALYZER_ENABLED=true|false`
 
 ## 3. Setup grumpyclaw
 
@@ -106,7 +108,7 @@ Plain text input runs `grumpyclaw.ask`.
 
 ## 7. Run on boot (systemd)
 
-Assumes project at `/home/darter/grumpyClaw` and user `darter`. Install unit files into `/etc/systemd/system/`, then enable and start.
+Assumes project at `/home/darter/grumpyclaw` and user `darter`. Install unit files into `/etc/systemd/system/`, then enable and start.
 
 ### grumpyreachy-run.service
 
@@ -118,51 +120,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/darter/grumpyClaw
-EnvironmentFile=/home/darter/grumpyClaw/.env
+WorkingDirectory=/home/darter/grumpyclaw
+EnvironmentFile=/home/darter/grumpyclaw/.env
 ExecStart=/home/darter/.local/bin/uv run grumpyreachy-run
-Restart=on-failure
-RestartSec=10
-User=darter
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### grumpyreachy-heartbeat.service
-
-```ini
-[Unit]
-Description=grumpyreachy heartbeat bridge (JSON output)
-After=network-online.target grumpyreachy-run.service
-Wants=network-online.target
-
-[Service]
-Type=simple
-WorkingDirectory=/home/darter/grumpyClaw
-EnvironmentFile=/home/darter/grumpyClaw/.env
-ExecStart=/home/darter/.local/bin/uv run grumpyreachy-heartbeat
-Restart=on-failure
-RestartSec=10
-User=darter
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### grumpyclaw-heartbeat.service
-
-```ini
-[Unit]
-Description=grumpyclaw heartbeat
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-WorkingDirectory=/home/darter/grumpyClaw
-EnvironmentFile=/home/darter/grumpyClaw/.env
-ExecStart=/home/darter/.local/bin/uv run heartbeat
 Restart=on-failure
 RestartSec=10
 User=darter
@@ -181,8 +141,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/darter/grumpyClaw
-EnvironmentFile=/home/darter/grumpyClaw/.env
+WorkingDirectory=/home/darter/grumpyclaw
+EnvironmentFile=/home/darter/grumpyclaw/.env
 ExecStart=/home/darter/.local/bin/uv run slack-bot
 Restart=on-failure
 RestartSec=10
@@ -196,8 +156,8 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable grumpyreachy-run.service grumpyreachy-heartbeat.service grumpyclaw-heartbeat.service
-sudo systemctl start grumpyreachy-run grumpyreachy-heartbeat grumpyclaw-heartbeat
+sudo systemctl enable grumpyreachy-run.service grumpyclaw-slack-bot.service
+sudo systemctl start grumpyreachy-run grumpyclaw-slack-bot
 ```
 
 Status and logs:
@@ -214,6 +174,6 @@ sudo journalctl -u grumpyreachy-run.service -f
 Heartbeat commands are one-shot; use cron (or a systemd timer) to run them on a schedule, e.g. every 15 minutes:
 
 ```cron
-*/15 * * * * cd /home/darter/grumpyClaw && /home/darter/.local/bin/uv run heartbeat
-*/15 * * * * cd /home/darter/grumpyClaw && /home/darter/.local/bin/uv run grumpyreachy-heartbeat
+*/15 * * * * cd /home/darter/grumpyclaw && /home/darter/.local/bin/uv run heartbeat
+*/15 * * * * cd /home/darter/grumpyclaw && /home/darter/.local/bin/uv run grumpyreachy-heartbeat
 ```
