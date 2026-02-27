@@ -1,68 +1,90 @@
-"""OpenAI-compatible LLM client for OpenAI and OpenCode Zen."""
+"""OpenAI-only LLM client built on the Responses API."""
 
 from __future__ import annotations
 
+import logging
 import os
-from typing import Any, Generator
+from collections.abc import Generator
+from typing import Any
 
 from openai import OpenAI
 
+LOG = logging.getLogger("grumpyclaw.llm")
+
+
+def _resolve_text_model() -> str:
+    text_model = os.environ.get("OPENAI_TEXT_MODEL", "").strip()
+    if text_model:
+        return text_model
+    legacy = os.environ.get("LLM_MODEL", "").strip()
+    if legacy:
+        LOG.warning("Deprecated env LLM_MODEL in use. Set OPENAI_TEXT_MODEL instead.")
+        return legacy
+    return "gpt-5-mini"
+
 
 def _get_config() -> tuple[str, str, str]:
-    """Return (api_key, base_url, model). Prefer OpenCode Zen if key set."""
-    opencode_key = os.environ.get("OPENCODE_API_KEY", "").strip()
-    openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
-    base_url = os.environ.get("LLM_BASE_URL", "").strip()
-    model = os.environ.get("LLM_MODEL", "").strip()
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    base_url = os.environ.get("OPENAI_BASE_URL", "").strip()
+    model = _resolve_text_model()
 
-    if opencode_key:
-        api_key = opencode_key
-        base_url = base_url or "https://opencode.ai/zen/v1"
-        model = model or "opencode/gpt-5-nano"
-    elif openai_key:
-        api_key = openai_key
-        base_url = base_url or "https://api.openai.com/v1"
-        model = model or "gpt-5-nano"
-    else:
-        raise ValueError(
-            "Set OPENCODE_API_KEY or OPENAI_API_KEY (and optionally LLM_BASE_URL, LLM_MODEL)"
-        )
-
+    if not api_key:
+        raise ValueError("Set OPENAI_API_KEY")
     return api_key, base_url, model
 
 
 def get_client() -> OpenAI:
-    """Return configured OpenAI client (works with OpenCode Zen via base_url)."""
     api_key, base_url, _ = _get_config()
-    return OpenAI(api_key=api_key, base_url=base_url)
+    kwargs: dict[str, Any] = {"api_key": api_key}
+    if base_url:
+        kwargs["base_url"] = base_url
+    return OpenAI(**kwargs)
 
 
-def chat(
-    messages: list[dict[str, Any]],
-    stream: bool = False,
-) -> str | Generator[str, None, None]:
-    """
-    Send messages to the LLM and return the assistant reply.
+def chat(messages: list[dict[str, Any]], stream: bool = False) -> str | Generator[str, None, None]:
+    """Send chat-like messages via Responses API.
 
-    messages: list of {"role": "user"|"assistant"|"system", "content": "..."}
-    stream: if True, yield content chunks; otherwise return full content string.
+    `messages` supports role/content pairs. `system` messages are mapped to
+    `instructions`.
     """
     _, _, model = _get_config()
     client = get_client()
 
-    resp = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        stream=stream,
-    )
+    instructions = ""
+    input_items: list[dict[str, str]] = []
+    for msg in messages:
+        role = str(msg.get("role", "user") or "user").strip().lower()
+        content = str(msg.get("content", "") or "")
+        if not content:
+            continue
+        if role == "system":
+            instructions = f"{instructions}\n{content}".strip()
+            continue
+        if role not in {"user", "assistant", "developer"}:
+            role = "user"
+        input_items.append({"role": role, "content": content})
 
     if stream:
+        resp = client.responses.create(
+            model=model,
+            instructions=instructions or None,
+            input=input_items,
+            stream=True,
+        )
+
         def gen() -> Generator[str, None, None]:
-            for chunk in resp:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+            for event in resp:
+                etype = str(getattr(event, "type", "") or "")
+                if etype in {"response.output_text.delta", "response.text.delta"}:
+                    delta = str(getattr(event, "delta", "") or "")
+                    if delta:
+                        yield delta
+
         return gen()
 
-    if not resp.choices:
-        return ""
-    return resp.choices[0].message.content or ""
+    response = client.responses.create(
+        model=model,
+        instructions=instructions or None,
+        input=input_items,
+    )
+    return response.output_text or ""

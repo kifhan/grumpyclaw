@@ -32,8 +32,8 @@ def main() -> int:
     else:
         docs_sync_status = "Google Docs sync skipped (GOOGLE_CREDENTIALS_PATH not set)."
 
-    # 2) Stub other sources (v1: no Gmail/Calendar/Slack adapters yet)
-    context = f"{docs_sync_status} No other sources configured (Gmail/Calendar/Slack stubbed)."
+    # 2) Stub other sources (v1: no Gmail/Calendar adapters yet)
+    context = f"{docs_sync_status} No other sources configured (Gmail/Calendar stubbed)."
 
     # 3) LLM: HEARTBEAT_OK or one short user notification
     system = (

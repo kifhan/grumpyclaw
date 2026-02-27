@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from grumpyreachy.actions import ControlAction
-from grumpyreachy.app import GrumpyReachyApp
+from grumpyreachy.app import GrumpyReachyApp, RunState
 
 from .config import ApiConfig
 from .db import dump_json, get_conn
@@ -48,6 +48,19 @@ class RobotActionResult:
     reason: str = ""
 
 
+def _status_payload(
+    run_state: str,
+    robot_connected: bool,
+    thread_alive: bool,
+) -> dict[str, Any]:
+    return {
+        "run_state": run_state,
+        "robot_connected": robot_connected,
+        "thread_alive": thread_alive,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 class RobotService:
     def __init__(self, event_bus: EventBus, config: ApiConfig):
         self._event_bus = event_bus
@@ -57,6 +70,9 @@ class RobotService:
         self._lock = threading.Lock()
         self._last_action_at: dict[str, float] = {}
         self.feedback_bridge = ApiFeedbackBridge(event_bus=event_bus)
+        self._last_emitted_status: dict[str, Any] | None = None
+        self._status_poller_thread: threading.Thread | None = None
+        self._status_poller_stop = threading.Event()
 
     def start(self) -> None:
         with self._lock:
@@ -65,13 +81,57 @@ class RobotService:
             self._app = GrumpyReachyApp()
             self._thread = threading.Thread(target=self._app.run_forever, name="api-grumpyreachy", daemon=True)
             self._thread.start()
+            if self._status_poller_thread is None or not self._status_poller_thread.is_alive():
+                self._status_poller_stop.clear()
+                self._status_poller_thread = threading.Thread(
+                    target=self._status_poller_loop,
+                    name="robot-service-status-poller",
+                    daemon=True,
+                )
+                self._status_poller_thread.start()
+
+    def _status_poller_loop(self) -> None:
+        while not self._status_poller_stop.wait(timeout=2.0):
+            payload = self.status()
+            with self._lock:
+                last = self._last_emitted_status
+            if last is None or (
+                last.get("run_state") != payload["run_state"]
+                or last.get("robot_connected") != payload["robot_connected"]
+                or last.get("thread_alive") != payload["thread_alive"]
+            ):
+                with self._lock:
+                    self._last_emitted_status = dict(payload)
+                self._event_bus.publish(
+                    "runtime",
+                    StreamEvent(event="robot.status", data=payload),
+                )
+
+    def status(self) -> dict[str, Any]:
+        """Return current robot service state for API/UI (run_state, robot_connected, thread_alive, ts)."""
+        with self._lock:
+            app = self._app
+            thread = self._thread
+        if app is None:
+            return _status_payload("stopped", False, False)
+        thread_alive = thread is not None and thread.is_alive()
+        run_state = app.state.name
+        robot_connected = getattr(app._controller, "connected", False)
+        return _status_payload(run_state, robot_connected, thread_alive)
+
+    def get_app(self) -> GrumpyReachyApp | None:
+        """Return the running GrumpyReachyApp instance, or None if not started."""
+        with self._lock:
+            return self._app
 
     def stop(self) -> None:
+        self._status_poller_stop.set()
         with self._lock:
             if self._app:
                 self._app.stop()
             if self._thread and self._thread.is_alive():
                 self._thread.join(timeout=3.0)
+            self._last_emitted_status = None
 
     def enqueue_action(self, payload: dict[str, Any]) -> RobotActionResult:
         self.start()

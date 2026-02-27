@@ -33,7 +33,7 @@
 * **나만의 구축 (My Build):**
 * **기술:** OpenAI / OpenCode Zen + Python APIs.
 * **주기:** **30분마다 실행.**
-* **기능:** Python이 Gmail, Calendar, Slack, **Google Docs(저널)** 에서 직접 데이터를 수집. LLM(OpenAI 또는 OpenCode Zen의 GLM/Kimi 등)이 데이터를 추론하여 알림 여부 결정.
+* **기능:** Python이 Gmail, Calendar, **Google Docs(저널)** 에서 직접 데이터를 수집. LLM(OpenAI 또는 OpenCode Zen의 GLM/Kimi 등)이 데이터를 추론하여 알림 여부 결정.
 * **알림 예시:** "15분 뒤 미팅 있음 - 준비 문서가 비어있음" 또는 "HEARTBEAT_OK (보고할 것 없음)".
 
 
@@ -46,10 +46,8 @@
 
 
 * **나만의 구축 (My Build):**
-* **지원:** **Slack (Socket Mode) + Terminal.**
-* **특징:** 퍼블릭 URL 필요 없음. 각 스레드가 영구적인 대화 유지.
-* **Terminal:** OpenAI / OpenCode Zen을 통한 직접 상호작용.
-* **확장:** Discord, Teams 등은 필요할 때 추가 (One-shot with OpenAI/OpenCode Zen).
+* **지원:** **Terminal.**
+* **특징:** OpenAI / OpenCode Zen을 통한 직접 상호작용. Discord, Teams 등은 필요할 때 추가 (One-shot with OpenAI/OpenCode Zen).
 
 
 
@@ -77,7 +75,7 @@
 
 * 🔵 **기억:** 당신의 결정, 선호도, 맥락(Context)을 기억함.
 * 🔵 **사전 확인:** 당신이 묻기 전에 이메일과 캘린더를 확인.
-* 🟢 **어디서나 대화:** Slack, 터미널 등 어디서든 대화 가능.
+* 🟢 **어디서나 대화:** 터미널 등 어디서든 대화 가능.
 * 🟠 **확장성:** 단일 파일 추가만으로 모든 기능 확장 가능.
 * **핵심 가치:** 당신을 대신하여 행동하고, 필요한 것을 예측함. 매일 당신을 더 잘 알게 됨.
 
@@ -114,12 +112,11 @@ OpenClaw를 의존성(Dependency)이 아닌 **청사진(Blueprint)**으로 사�
 | **1. OS** | Raspberry Pi OS **64-bit** (Bullseye/Bookworm) 권장. 32-bit는 ONNX/FastEmbed에서 메모리 제한 가능. |
 | **2. 시스템 준비** | `sudo apt update && sudo apt install -y sqlite3 curl`. uv 설치: `curl -LsSf https://astral.sh/uv/install.sh \| sh` 후 터미널 재시작 또는 `source $HOME/.local/bin/env`. 필요 시 스왑 1GB 추가: `sudo dphys-swapfile swapoff`, 편집 후 `swapsize=1024`, `sudo dphys-swapfile setup && sudo dphys-swapfile swapon`. |
 | **3. 프로젝트 디렉터리** | `mkdir -p ~/grumpyClaw && cd ~/grumpyClaw`. 프로젝트가 이미 있으면 클론/복사 후 `uv sync`로 가상환경 생성 및 의존성 설치. 새로 시작 시 `uv init` 후 의존성 추가. |
-| **4. Python 의존성** | `uv sync` (pyproject.toml + uv.lock 기준) 또는 `uv pip install -r requirements.txt`. SQLite 드라이버·FastEmbed(ONNX)·OpenAI 호환 클라이언트·Slack SDK·**Google Docs API 클라이언트** 등. FastEmbed는 ARM용으로 작은 임베딩 모델(예: 384-dim) 사용 시 4GB에서 동작 가능. |
+| **4. Python 의존성** | `uv sync` (pyproject.toml + uv.lock 기준) 또는 `uv pip install -r requirements.txt`. SQLite 드라이버·FastEmbed(ONNX)·OpenAI 호환 클라이언트·**Google Docs API 클라이언트** 등. FastEmbed는 ARM용으로 작은 임베딩 모델(예: 384-dim) 사용 시 4GB에서 동작 가능. |
 | **5. API 키** | OpenCode Zen 또는 OpenAI API 키를 `.env` 또는 설정 파일에 저장. Pi는 클라이언트만 하므로 키만 있으면 됨. |
 | **6. 메모리·검색** | SQLite DB 및 Markdown 파일을 `~/grumpyClaw` 내에 두고, 하이브리드 검색 스크립트가 로컬에서만 실행되도록 구성. 인덱싱/임베딩은 배치 크기 작게 해서 RAM 절약. |
 | **7. 하트비트** | cron: `crontab -e`에 `*/30 * * * * cd /home/pi/grumpyClaw && uv run heartbeat.py` 형태로 30분 주기 등록. (uv가 PATH에 있어야 함; 필요 시 `PATH=$HOME/.local/bin:$PATH`를 crontab 상단에 추가.) |
-| **8. Slack (선택)** | Socket Mode 봇으로 실행 시 `uv run slack_bot.py`를 systemd 서비스로 등록해 부팅 시 자동 기동. |
-| **9. 확인** | 터미널에서 `uv run`으로 대화 클라이언트 실행, 하트비트 1회 수동 실행, Slack 메시지 수신 테스트. |
+| **8. 확인** | 터미널에서 `uv run`으로 대화 클라이언트 실행, 하트비트 1회 수동 실행. |
 
 > **요약:** 64-bit OS + **uv** + API 전용 LLM + 로컬 FastEmbed/SQLite만 Pi에서 실행. 4GB면 FastEmbed 경량 모델과 적당한 스왑으로 안정 동작 가능.
 

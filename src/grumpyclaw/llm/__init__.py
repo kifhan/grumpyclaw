@@ -1,4 +1,4 @@
-"""LLM client: OpenAI and OpenCode Zen (base_url) compatible."""
+"""LLM client: OpenAI Responses API."""
 
 from grumpyclaw.llm.client import chat, get_client
 

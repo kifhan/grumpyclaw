@@ -1,5 +1,7 @@
 import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { ChatPage } from "./pages/ChatPage";
+import { ConversationPage } from "./pages/ConversationPage";
+import { DeviceTestPage } from "./pages/DeviceTestPage";
 import { RuntimePage } from "./pages/RuntimePage";
 import { RobotPage } from "./pages/RobotPage";
 import { MemoryPage } from "./pages/MemoryPage";
@@ -9,6 +11,8 @@ import { LogsPage } from "./pages/LogsPage";
 
 const links = [
   ["/chat", "Chat"],
+  ["/conversation", "Conversation"],
+  ["/device-test", "Device test"],
   ["/runtime", "Runtime"],
   ["/robot", "Robot"],
   ["/memory", "Memory"],
@@ -36,6 +40,8 @@ export function App() {
           <Routes>
             <Route path="/" element={<ChatPage />} />
             <Route path="/chat" element={<ChatPage />} />
+            <Route path="/conversation" element={<ConversationPage />} />
+            <Route path="/device-test" element={<DeviceTestPage />} />
             <Route path="/runtime" element={<RuntimePage />} />
             <Route path="/robot" element={<RobotPage />} />
             <Route path="/memory" element={<MemoryPage />} />

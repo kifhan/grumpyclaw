@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 try:
@@ -11,12 +12,20 @@ except Exception:  # pragma: no cover - optional dependency in no-robot mode
     RecordedMoves = None  # type: ignore[assignment]
 
 
+def _is_connection_error(exc: BaseException) -> bool:
+    if isinstance(exc, ConnectionError):
+        return True
+    return "Lost connection" in str(exc) or "ConnectionError" in type(exc).__name__
+
+
 class RobotController:
     """Thin wrapper around ReachyMini with guarded operations."""
 
     def __init__(self, mini: Any | None = None):
         self._mini = mini
         self._log = logging.getLogger("grumpyreachy.robot")
+        self._connection_lost = False
+        self._last_connection_error_log: float = 0.0
         self._builtin_motion_index: dict[str, tuple[str, str]] | None = None
         self._builtin_motion_catalogs: dict[str, Any] = {}
         self._builtin_motion_load_attempted = False
@@ -36,20 +45,22 @@ class RobotController:
 
     @property
     def connected(self) -> bool:
-        return self._mini is not None
+        return self._mini is not None and not self._connection_lost
 
     def look_at(self, x: float, y: float, z: float, duration: float = 1.0) -> None:
-        if not self._mini:
-            self._log.info("look_at skipped (robot not connected): (%s, %s, %s)", x, y, z)
+        if not self._mini or self._connection_lost:
             return
         try:
             self._mini.look_at_world(x=x, y=y, z=z, duration=duration)
-        except Exception:
-            self._log.exception("look_at failed")
+        except Exception as e:
+            if _is_connection_error(e):
+                self._connection_lost = True
+                self._log.warning("Robot connection lost (look_at)")
+            else:
+                self._log.exception("look_at failed")
 
     def nod(self) -> None:
-        if not self._mini:
-            self._log.info("nod skipped (robot not connected)")
+        if not self._mini or self._connection_lost:
             return
         if self._play_builtin_motion(self._MOTION_CANDIDATES["nod"], initial_goto_duration=0.25):
             return
@@ -57,12 +68,15 @@ class RobotController:
             self._mini.look_at_world(x=0.35, y=0.0, z=-0.05, duration=0.25)
             self._mini.look_at_world(x=0.35, y=0.0, z=0.15, duration=0.25)
             self._mini.look_at_world(x=0.35, y=0.0, z=0.05, duration=0.25)
-        except Exception:
-            self._log.exception("nod failed")
+        except Exception as e:
+            if _is_connection_error(e):
+                self._connection_lost = True
+                self._log.warning("Robot connection lost (nod)")
+            else:
+                self._log.exception("nod failed")
 
     def antenna_feedback(self, state: str = "attention") -> None:
-        if not self._mini:
-            self._log.info("antenna_feedback skipped (robot not connected): %s", state)
+        if not self._mini or self._connection_lost:
             return
         patterns = {
             "attention": [0.15, -0.15],
@@ -78,8 +92,12 @@ class RobotController:
         target = patterns.get(state, patterns["neutral"])
         try:
             self._mini.set_target_antenna_joint_positions(target)
-        except Exception:
-            self._log.exception("antenna_feedback failed for state=%s", state)
+        except Exception as e:
+            if _is_connection_error(e):
+                self._connection_lost = True
+                self._log.warning("Robot connection lost (antenna_feedback)")
+            else:
+                self._log.exception("antenna_feedback failed for state=%s", state)
 
     def speak(self, text: str) -> None:
         # Reachy Mini text-to-speech backend may vary by deployment.
@@ -87,6 +105,23 @@ class RobotController:
 
     def neutral_pose(self) -> None:
         self.antenna_feedback("neutral")
+
+    def set_target_antenna(self, positions: list[float]) -> None:
+        """Set antenna joint positions directly (for 100Hz control loop)."""
+        if not self._mini or self._connection_lost or len(positions) < 2:
+            return
+        try:
+            self._mini.set_target_antenna_joint_positions(positions)
+        except Exception as e:
+            if _is_connection_error(e):
+                self._connection_lost = True
+                now = time.monotonic()
+                if now - self._last_connection_error_log >= 10.0:
+                    self._last_connection_error_log = now
+                    self._log.warning("Robot connection lost; antenna commands paused until restart")
+            # else: other exceptions are unexpected in the control loop; log at debug only
+            elif self._log.isEnabledFor(logging.DEBUG):
+                self._log.debug("set_target_antenna failed: %s", e)
 
     def _play_builtin_motion(
         self, candidates: tuple[str, ...], initial_goto_duration: float = 0.25

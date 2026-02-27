@@ -5,7 +5,7 @@ type Session = { id: string; mode: ChatMode; title: string };
 type Msg = { id: string; role: string; content: string; status: string };
 
 export function ChatPage() {
-  const [mode, setMode] = useState<ChatMode>("grumpyclaw");
+  const [mode, setMode] = useState<ChatMode>("assistant");
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selected, setSelected] = useState<string>("");
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -32,22 +32,18 @@ export function ChatPage() {
   useEffect(() => {
     if (!selected) return;
     refreshMessages(selected).catch(console.error);
-    const stream = makeSse(`/chat/sessions/${selected}/stream`);
-    stream.addEventListener("chat.token", (e) => {
+    const stream = makeSse(`/assistant/sessions/${selected}/stream`);
+    stream.addEventListener("assistant.token", (e) => {
       const payload = JSON.parse((e as MessageEvent).data) as { message_id: string; token: string };
       setMessages((prev) => prev.map((m) => (m.id === payload.message_id ? { ...m, content: `${m.content}${payload.token}` } : m)));
     });
-    stream.addEventListener("chat.final", (e) => {
+    stream.addEventListener("assistant.final", (e) => {
       const payload = JSON.parse((e as MessageEvent).data) as { message_id: string; content: string };
       setMessages((prev) => prev.map((m) => (m.id === payload.message_id ? { ...m, content: payload.content, status: "final" } : m)));
     });
-    stream.addEventListener("tool.event", (e) => {
-      const payload = JSON.parse((e as MessageEvent).data) as { tool_name: string; phase: string; message: string };
-      setEvents((prev) => [`${payload.phase} ${payload.tool_name}: ${payload.message}`, ...prev].slice(0, 30));
-    });
-    stream.addEventListener("robot.feedback", (e) => {
-      const payload = JSON.parse((e as MessageEvent).data) as { state: string; message: string };
-      setEvents((prev) => [`robot ${payload.state}: ${payload.message}`, ...prev].slice(0, 30));
+    stream.addEventListener("assistant.tool", (e) => {
+      const payload = JSON.parse((e as MessageEvent).data) as { tool: string; result: unknown };
+      setEvents((prev) => [`tool ${payload.tool}: ${JSON.stringify(payload.result)}`, ...prev].slice(0, 30));
     });
     return () => stream.close();
   }, [selected]);
@@ -71,8 +67,7 @@ export function ChatPage() {
       <h2>Chat</h2>
       <div className="panel row">
         <select value={mode} onChange={(e) => setMode(e.target.value as ChatMode)}>
-          <option value="grumpyclaw">grumpyclaw</option>
-          <option value="grumpyreachy">grumpyreachy</option>
+          <option value="assistant">assistant</option>
         </select>
         <button onClick={createSession}>New Session</button>
       </div>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -10,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .backend.config import ApiConfig
 from .backend.db import init_app_db
-from .backend.routers import admin, chat, robot, runtime, system
+from .backend.routers import admin, assistant, devices, robot, runtime, system
 from .backend.state import build_state
 
 
@@ -21,11 +22,12 @@ async def lifespan(app: FastAPI):
     app.state.container = build_state()
     if app.state.container.config.autostart_robot:
         app.state.container.robot.start()
+        await asyncio.sleep(1.0)
     logging.getLogger("grumpyadmin").info("API startup complete")
     try:
         yield
     finally:
-        app.state.container.runtime.shutdown()
+        app.state.container.assistant.shutdown()
         app.state.container.robot.stop()
 
 
@@ -46,8 +48,9 @@ def create_app() -> FastAPI:
 
     app.include_router(system.router, prefix="/api/v1")
     app.include_router(runtime.router, prefix="/api/v1")
-    app.include_router(chat.router, prefix="/api/v1")
+    app.include_router(assistant.router, prefix="/api/v1")
     app.include_router(robot.router, prefix="/api/v1")
+    app.include_router(devices.router, prefix="/api/v1")
     app.include_router(admin.router, prefix="/api/v1")
 
     return app
@@ -59,7 +62,7 @@ app = create_app()
 def main() -> int:
     import uvicorn
 
-    uvicorn.run("api.main:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("api.main:app", host="0.0.0.0", port=8001, reload=False)
     return 0
 
 

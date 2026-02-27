@@ -1,29 +1,45 @@
 import { useEffect, useState } from "react";
 import { api, makeSse } from "../api";
 
-const names = ["grumpyreachy-run", "slack-bot", "heartbeat", "grumpyreachy-heartbeat"];
+type RobotStatus = {
+  run_state: string;
+  robot_connected: boolean;
+  thread_alive: boolean;
+  ts?: string;
+};
 
 export function RuntimePage() {
-  const [status, setStatus] = useState<Record<string, any>>({});
+  const [status, setStatus] = useState<Record<string, unknown>>({});
+  const [robotStatus, setRobotStatus] = useState<RobotStatus | null>(null);
   const [events, setEvents] = useState<string[]>([]);
 
   async function refresh() {
-    setStatus((await api.runtimeStatus()) as Record<string, any>);
+    setStatus((await api.runtimeStatus()) as Record<string, unknown>);
+    setRobotStatus(await api.robotStatus());
   }
 
   useEffect(() => {
     refresh().catch(console.error);
     const stream = makeSse("/runtime/events/stream");
-    const push = (e: MessageEvent, label: string) => setEvents((prev) => [`${label}: ${e.data}`, ...prev].slice(0, 80));
-    stream.addEventListener("process.started", (e) => push(e as MessageEvent, "started"));
-    stream.addEventListener("process.stopped", (e) => push(e as MessageEvent, "stopped"));
-    stream.addEventListener("process.exit", (e) => push(e as MessageEvent, "exit"));
-    stream.addEventListener("process.log", (e) => push(e as MessageEvent, "log"));
+    stream.addEventListener("runtime.heartbeat", (e) => {
+      const payload = (e as MessageEvent).data;
+      setEvents((prev) => [`runtime.heartbeat: ${payload}`, ...prev].slice(0, 80));
+      refresh().catch(console.error);
+    });
     return () => stream.close();
   }, []);
 
-  async function act(name: string, action: "start" | "stop" | "restart") {
-    await api.runtimeAction(name, action);
+  async function heartbeatAct(action: "start" | "stop" | "run-now") {
+    if (action === "start") await api.runtimeHeartbeatStart();
+    else if (action === "stop") await api.runtimeHeartbeatStop();
+    else await api.runtimeHeartbeatRunNow();
+    await refresh();
+  }
+
+  async function robotAct(action: "start" | "stop" | "restart") {
+    if (action === "start") await api.robotStart();
+    else if (action === "stop") await api.robotStop();
+    else await api.robotRestart();
     await refresh();
   }
 
@@ -31,20 +47,34 @@ export function RuntimePage() {
     <div>
       <h2>Runtime</h2>
       <div className="row">
-        {names.map((name) => (
-          <div className="panel" key={name} style={{ width: 320 }}>
-            <h4>{name}</h4>
-            <pre>{JSON.stringify(status[name] ?? {}, null, 2)}</pre>
-            <div className="row">
-              <button onClick={() => act(name, "start")}>Start</button>
-              <button onClick={() => act(name, "stop")}>Stop</button>
-              <button onClick={() => act(name, "restart")}>Restart</button>
-            </div>
+        <div className="panel" style={{ width: 340 }}>
+          <h4>Heartbeat scheduler (in-process)</h4>
+          <pre>{JSON.stringify((status["heartbeat"] ?? {}) as Record<string, unknown>, null, 2)}</pre>
+          <div className="row">
+            <button onClick={() => heartbeatAct("start")}>Start</button>
+            <button onClick={() => heartbeatAct("stop")}>Stop</button>
+            <button onClick={() => heartbeatAct("run-now")}>Run Now</button>
           </div>
-        ))}
+        </div>
+
+        <div className="panel" style={{ width: 340 }}>
+          <h4>Realtime service (server-side)</h4>
+          <pre>{JSON.stringify((status["realtime"] ?? {}) as Record<string, unknown>, null, 2)}</pre>
+        </div>
+
+        <div className="panel" style={{ width: 340 }}>
+          <h4>Robot service (in-process)</h4>
+          <pre>{robotStatus ? JSON.stringify(robotStatus, null, 2) : "—"}</pre>
+          <div className="row">
+            <button onClick={() => robotAct("start")}>Start</button>
+            <button onClick={() => robotAct("stop")}>Stop</button>
+            <button onClick={() => robotAct("restart")}>Restart</button>
+          </div>
+        </div>
       </div>
+
       <div className="panel">
-        <h4>Live Events</h4>
+        <h4>Live Runtime Events</h4>
         {events.map((line, idx) => <div key={idx}>{line}</div>)}
       </div>
     </div>
