@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .backend.config import ApiConfig
 from .backend.db import init_app_db
-from .backend.routers import admin, assistant, devices, robot, runtime, system
+from .backend.routers import admin, assistant, companion, devices, robot, runtime, system
 from .backend.state import build_state
 
 
@@ -27,6 +27,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        app.state.container.companion.shutdown()
         app.state.container.assistant.shutdown()
         app.state.container.robot.stop()
 
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
     app.include_router(system.router, prefix="/api/v1")
     app.include_router(runtime.router, prefix="/api/v1")
     app.include_router(assistant.router, prefix="/api/v1")
+    app.include_router(companion.router, prefix="/api/v1")
     app.include_router(robot.router, prefix="/api/v1")
     app.include_router(devices.router, prefix="/api/v1")
     app.include_router(admin.router, prefix="/api/v1")

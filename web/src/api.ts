@@ -54,6 +54,16 @@ export const api = {
   runSkill: (skillId: string) => req<{ skill_id: string; content: string }>("/skills/run", { method: "POST", body: JSON.stringify({ skill_id: skillId }) }),
   evaluateHeartbeat: () => req("/heartbeat/evaluate", { method: "POST" }),
   heartbeatHistory: () => req<Array<Record<string, unknown>>>("/heartbeat/history"),
+  companionConfig: () => req<Record<string, unknown>>("/companion/config"),
+  companionUpdateConfig: (payload: Record<string, unknown>) =>
+    req<Record<string, unknown>>("/companion/config", { method: "PUT", body: JSON.stringify(payload) }),
+  companionStatus: () => req<Record<string, unknown>>("/companion/status"),
+  companionEvents: (limit = 100) => req<Array<Record<string, unknown>>>(`/companion/events?limit=${limit}`),
+  companionSimulate: (trigger: string, confidence?: number | null) =>
+    req<Record<string, unknown>>("/companion/events/simulate", {
+      method: "POST",
+      body: JSON.stringify({ trigger, confidence }),
+    }),
   logs: (filters?: {
     source?: string;
     level?: string;

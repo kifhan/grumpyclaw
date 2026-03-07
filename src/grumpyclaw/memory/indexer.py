@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 from pathlib import Path
 
 from grumpyclaw.memory.db import get_db_path, init_db
+from grumpyclaw.memory.embedding import create_text_embedding
 
 
 def _chunk_text(text: str, max_chars: int = 1200, overlap: int = 100) -> list[str]:
@@ -46,17 +46,7 @@ class Indexer:
 
     def _get_model(self):
         if self._model is None:
-            from fastembed import TextEmbedding
-            providers_raw = os.environ.get("GRUMPYCLAW_EMBEDDING_PROVIDERS", "CPUExecutionProvider").strip()
-            providers = None if not providers_raw or providers_raw.lower() == "auto" else [
-                p.strip() for p in providers_raw.split(",") if p.strip()
-            ]
-            self._model = TextEmbedding(
-                model_name=self.embedding_model,
-                max_length=512,
-                providers=providers,
-                cuda=False,
-            )
+            self._model = create_text_embedding(model_name=self.embedding_model)
         return self._model
 
     def delete_by_source(self, source_type: str, source_id: str) -> None:

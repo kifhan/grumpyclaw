@@ -6,7 +6,14 @@ import logging
 import os
 from dataclasses import dataclass
 
-DEFAULT_PREFERRED_INPUT_DEVICE = "respeaker,seeed-4mic,4mic,voicecard,ac108"
+DEFAULT_PREFERRED_INPUT_DEVICE = (
+    "macbook,built-in,default,reachy mini audio,reachy mini,pollen robotics,"
+    "microphone,mic,respeaker,seeed-4mic,4mic,voicecard,ac108"
+)
+DEFAULT_PREFERRED_OUTPUT_DEVICE = (
+    "macbook,built-in,default,reachy mini audio,reachy mini,pollen robotics,"
+    "speakers,speaker,respeaker,seeed-4mic,4mic,voicecard,ac108"
+)
 
 
 def _get_bool(name: str, default: bool) -> bool:
@@ -74,7 +81,7 @@ class GrumpyReachyConfig:
     camera_index: int = 0
     camera_enabled: bool = True
     preferred_input_device: str = DEFAULT_PREFERRED_INPUT_DEVICE
-    preferred_output_device: str = ""
+    preferred_output_device: str = DEFAULT_PREFERRED_OUTPUT_DEVICE
 
     @classmethod
     def from_env(cls) -> "GrumpyReachyConfig":
@@ -96,5 +103,8 @@ class GrumpyReachyConfig:
                 "GRUMPYREACHY_PREFERRED_INPUT_DEVICE",
                 DEFAULT_PREFERRED_INPUT_DEVICE,
             ),
-            preferred_output_device=_get_str("GRUMPYREACHY_PREFERRED_OUTPUT_DEVICE", ""),
+            preferred_output_device=_get_str(
+                "GRUMPYREACHY_PREFERRED_OUTPUT_DEVICE",
+                DEFAULT_PREFERRED_OUTPUT_DEVICE,
+            ),
         )

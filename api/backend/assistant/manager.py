@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import uuid
@@ -13,6 +14,7 @@ from grumpyreachy.heartbeat_bridge import HeartbeatBridge
 from ..db import dump_json, get_conn, load_json
 from ..event_bus import EventBus, StreamEvent
 from .heartbeat_scheduler import HeartbeatScheduler
+from .image_cache import RealtimeImageCache
 from .realtime_service import OpenAIRealtimeService
 from .text_gateway import OpenAITextGateway
 from .tools import ToolDispatcher
@@ -36,6 +38,58 @@ def _system_prompt() -> str:
     return "\n".join(parts)
 
 
+def _realtime_prompt(motion_catalog: dict[str, Any] | None = None) -> str:
+    catalog = motion_catalog if isinstance(motion_catalog, dict) else {}
+    available = bool(catalog.get("available"))
+    emotions = sorted({str(name).strip() for name in catalog.get("emotions", []) if str(name).strip()}, key=str.lower)
+    dances = sorted({str(name).strip() for name in catalog.get("dances", []) if str(name).strip()}, key=str.lower)
+
+    available_emotions = ", ".join(emotions) if emotions else "none detected"
+    available_dances = ", ".join(dances) if dances else "none detected"
+
+    parts = [
+        "You are GrumpyClaw, a realtime robot assistant with a unique playful-scout personality: curious, witty, slightly cheeky, and warm.",
+        "For normal replies, speak naturally in 1-2 sentences. Only go longer when the user explicitly asks for more detail.",
+        "Keep your character consistent across turns; avoid generic assistant tone.",
+        "For visual grounding, call capture_camera_context before making claims about what you can see.",
+        "Use robot_action for expression frequently and contextually.",
+        "When calling robot_action, always include a valid non-empty action enum value.",
+        "Be emotion-forward: prefer play_emotion as the primary expressive action; use nod, look_at, and antenna_feedback as supporting gestures.",
+        "Use dance for celebratory/high-energy moments, not neutral turns.",
+        "Avoid repeating the exact same motion pattern in consecutive turns when alternatives fit.",
+        "Accepted robot_action.action values: nod, look_at, antenna_feedback, speak, play_emotion, stop_emotion, dance, stop_dance.",
+        "Curated emotion labels for intent matching: happy, sad, curious, angry, neutral, excited.",
+        (
+            "Installed motion catalog is available at runtime."
+            if available
+            else "Installed motion catalog is not currently available; use curated labels and safe defaults."
+        ),
+        f"Installed play_emotion names (exact name values): {available_emotions}.",
+        f"Installed dance names (exact name values): {available_dances}.",
+        "If user intent is emotional and a weak action is being considered, prefer play_emotion with the closest available name.",
+        "When the user shares stable personal preferences or facts, call save_memory.",
+        "When the user asks for prior preferences or personal history, call search_memory.",
+        "Available memory/vision tools: capture_camera_context, save_memory, search_memory.",
+        "Do not store secrets or credentials in memory.",
+    ]
+    return "\n".join(parts)
+
+
+def _companion_reaction_prompt(context: dict[str, Any]) -> str:
+    return "\n".join(
+        [
+            "You select constrained robot companion reactions.",
+            "Reply with JSON only. Do not call tools.",
+            'Allowed action values: "play_emotion" or "dance".',
+            'Required JSON keys: action, name, duration_seconds.',
+            "Prefer play_emotion for looked_at, called, and petted triggers.",
+            "Allow dance for idle_heartbeat, or for social triggers only when a strong high-energy reaction is clearly justified.",
+            "Use an installed catalog name when one is available. Keep duration_seconds between 2 and 10 seconds.",
+            json.dumps(context, ensure_ascii=True),
+        ]
+    )
+
+
 class AssistantManager:
     """Centralized orchestration for text chat, realtime and heartbeat."""
 
@@ -46,20 +100,38 @@ class AssistantManager:
 
         self._retriever = Retriever()
         self._heartbeat_bridge = HeartbeatBridge()
-        self._tools = ToolDispatcher(robot_service=robot_service)
+        self._realtime_image_cache = RealtimeImageCache(
+            cache_dir=config.realtime_image_cache_dir,
+            ttl_seconds=config.realtime_image_cache_ttl_seconds,
+        )
+        self._tools = ToolDispatcher(
+            robot_service=robot_service,
+            image_cache=self._realtime_image_cache,
+        )
 
         self._text_gateway = OpenAITextGateway(
             api_key=config.openai_api_key,
             base_url=config.openai_base_url,
+            ca_bundle=config.openai_ca_bundle,
             model=config.openai_text_model,
             tools=self._tools,
         )
         self._realtime_service = OpenAIRealtimeService(
             api_key=config.openai_api_key,
             base_url=config.openai_base_url,
+            ca_bundle=config.openai_ca_bundle,
             model=config.openai_realtime_model,
             input_gain=config.realtime_input_gain,
             output_gain=config.realtime_output_gain,
+            mic_suppression_seconds=config.realtime_mic_suppression_seconds,
+            talk_overlap_mode=config.realtime_talk_overlap_mode,
+            post_playback_hold_seconds=config.realtime_post_playback_hold_seconds,
+            voice_effect_mode=config.realtime_voice_effect_mode,
+            aec_enabled=config.realtime_aec_enabled,
+            aec_delay_ms=config.realtime_aec_delay_ms,
+            aec_strength=config.realtime_aec_strength,
+            aec_corr_threshold=config.realtime_aec_corr_threshold,
+            instructions=_realtime_prompt({}),
             tools=self._tools,
             on_event=self._on_realtime_event,
             get_robot_mini=self._get_robot_mini,
@@ -292,7 +364,9 @@ class AssistantManager:
             conn.close()
 
     def realtime_start(self) -> dict[str, Any]:
-        return self._realtime_service.start()
+        catalog_getter = getattr(self._robot_service, "get_motion_catalog", None)
+        catalog = catalog_getter() if callable(catalog_getter) else {"available": False, "emotions": [], "dances": []}
+        return self._realtime_service.start(instructions=_realtime_prompt(catalog))
 
     def realtime_stop(self) -> dict[str, Any]:
         return self._realtime_service.stop()
@@ -325,6 +399,33 @@ class AssistantManager:
             return items
         finally:
             conn.close()
+
+    def conversation_active(self) -> bool:
+        return self._realtime_service.conversation_active()
+
+    def resolve_companion_reaction(self, context: dict[str, Any]) -> dict[str, Any] | None:
+        if not self._text_gateway.available:
+            return None
+        raw = self._text_gateway.complete_text(
+            instructions=_companion_reaction_prompt(context),
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Choose the single best reaction and reply with strict JSON only.",
+                }
+            ],
+        )
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`").strip()
+            if cleaned.lower().startswith("json"):
+                cleaned = cleaned[4:].strip()
+        try:
+            parsed = json.loads(cleaned)
+        except json.JSONDecodeError:
+            LOG.warning("Companion resolver returned invalid JSON: %s", raw)
+            return None
+        return parsed if isinstance(parsed, dict) else None
 
     def heartbeat_start(self) -> dict[str, Any]:
         self._heartbeat_scheduler.start()
@@ -391,15 +492,17 @@ class AssistantManager:
         return payload
 
     def _on_realtime_event(self, event_type: str, payload: dict[str, Any]) -> None:
-        conn = get_conn()
-        try:
-            conn.execute(
-                "INSERT INTO app_realtime_events(event_type, payload_json) VALUES (?, ?)",
-                (event_type, dump_json(payload)),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+        # Delta transcript chunks are high-volume; keep them on SSE only.
+        if event_type != "assistant.realtime.transcript.delta":
+            conn = get_conn()
+            try:
+                conn.execute(
+                    "INSERT INTO app_realtime_events(event_type, payload_json) VALUES (?, ?)",
+                    (event_type, dump_json(payload)),
+                )
+                conn.commit()
+            finally:
+                conn.close()
 
         self._event_bus.publish("assistant-realtime", StreamEvent(event=event_type, data=payload))
 

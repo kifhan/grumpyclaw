@@ -7,13 +7,26 @@ import sqlite3
 from pathlib import Path
 
 
+def get_project_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
 def get_db_path() -> Path:
     path = os.environ.get("GRUMPYCLAW_DB_PATH", "")
     if path:
         return Path(path)
     # Default: project root / data / grumpyclaw.db
-    root = Path(__file__).resolve().parents[3]
-    return root / "data" / "grumpyclaw.db"
+    return get_project_root() / "data" / "grumpyclaw.db"
+
+
+def get_embedding_cache_dir() -> Path:
+    path = os.environ.get("GRUMPYCLAW_EMBEDDING_CACHE_DIR", "").strip()
+    if path:
+        cache_dir = Path(path).expanduser()
+    else:
+        cache_dir = get_project_root() / "data" / "fastembed_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
 
 
 def init_db(db_path: Path | None = None) -> sqlite3.Connection:

@@ -22,6 +22,11 @@ export function LogsPage() {
     setItems(out.items);
   }
 
+  function clearLogs() {
+    setItems([]);
+    setLive([]);
+  }
+
   useEffect(() => {
     refresh().catch(console.error);
   }, [source, level, processName, eventType]);
@@ -52,6 +57,7 @@ export function LogsPage() {
         <input value={eventType} onChange={(e) => setEventType(e.target.value)} placeholder="event_type" />
         <input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="contains text" />
         <button onClick={() => refresh()}>Refresh</button>
+        <button onClick={clearLogs} disabled={items.length === 0 && live.length === 0}>Clear Logs</button>
       </div>
       <div className="panel">
         <h4>Stored Logs</h4>

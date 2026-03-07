@@ -123,6 +123,30 @@ class RobotController:
             elif self._log.isEnabledFor(logging.DEBUG):
                 self._log.debug("set_target_antenna failed: %s", e)
 
+    def get_motion_catalog(self) -> dict[str, Any]:
+        """Return installed built-in motion names grouped by dataset."""
+        if not self._ensure_builtin_motions_loaded():
+            return {"available": False, "emotions": [], "dances": []}
+
+        def _names_for(dataset_key: str) -> list[str]:
+            catalog = self._builtin_motion_catalogs.get(dataset_key)
+            if catalog is None or not hasattr(catalog, "list_moves"):
+                return []
+            try:
+                names = [str(name).strip() for name in catalog.list_moves()]
+            except Exception:
+                self._log.debug("Failed to read built-in motion catalog: %s", dataset_key, exc_info=True)
+                return []
+            return sorted({name for name in names if name}, key=str.lower)
+
+        emotions = _names_for("emotions")
+        dances = _names_for("dances")
+        return {
+            "available": bool(emotions or dances),
+            "emotions": emotions,
+            "dances": dances,
+        }
+
     def _play_builtin_motion(
         self, candidates: tuple[str, ...], initial_goto_duration: float = 0.25
     ) -> bool:

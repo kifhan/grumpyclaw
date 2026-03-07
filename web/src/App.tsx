@@ -8,6 +8,7 @@ import { MemoryPage } from "./pages/MemoryPage";
 import { SkillsPage } from "./pages/SkillsPage";
 import { HeartbeatPage } from "./pages/HeartbeatPage";
 import { LogsPage } from "./pages/LogsPage";
+import { CompanionPage } from "./pages/CompanionPage";
 
 const links = [
   ["/chat", "Chat"],
@@ -18,6 +19,7 @@ const links = [
   ["/memory", "Memory"],
   ["/skills", "Skills"],
   ["/heartbeat", "Heartbeat"],
+  ["/companion", "Companion"],
   ["/logs", "Logs"],
 ] as const;
 
@@ -47,6 +49,7 @@ export function App() {
             <Route path="/memory" element={<MemoryPage />} />
             <Route path="/skills" element={<SkillsPage />} />
             <Route path="/heartbeat" element={<HeartbeatPage />} />
+            <Route path="/companion" element={<CompanionPage />} />
             <Route path="/logs" element={<LogsPage />} />
           </Routes>
         </main>

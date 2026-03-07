@@ -100,6 +100,25 @@ def init_app_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_companion_config (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                config_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_companion_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
         _ensure_column(conn, "app_process_events", "source", "TEXT NOT NULL DEFAULT 'runtime'")
         _ensure_column(conn, "app_process_events", "level", "TEXT NOT NULL DEFAULT 'INFO'")
         _ensure_column(conn, "app_robot_actions", "source", "TEXT NOT NULL DEFAULT 'robot'")
@@ -116,6 +135,8 @@ def init_app_db() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_app_realtime_events_type ON app_realtime_events(event_type)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_app_realtime_events_created ON app_realtime_events(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_app_heartbeat_runs_created ON app_heartbeat_runs(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_app_companion_events_type ON app_companion_events(event_type)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_app_companion_events_created ON app_companion_events(created_at)")
         conn.commit()
     finally:
         conn.close()

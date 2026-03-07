@@ -19,6 +19,8 @@ def test_init_app_db_creates_tables(monkeypatch, tmp_path: Path):
         assert "app_process_events" in names
         assert "app_heartbeat_history" in names
         assert "app_robot_actions" in names
+        assert "app_companion_config" in names
+        assert "app_companion_events" in names
 
         proc_cols = {row["name"] for row in conn.execute("PRAGMA table_info(app_process_events)").fetchall()}
         assert "source" in proc_cols

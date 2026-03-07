@@ -124,6 +124,98 @@ class RobotService:
         with self._lock:
             return self._app
 
+    def get_camera_worker(self) -> Any | None:
+        """Return the current camera worker used by the robot runtime."""
+        with self._lock:
+            app = self._app
+        if app is None:
+            return None
+        return getattr(app, "_camera_worker", None)
+
+    def get_movement_manager(self) -> Any | None:
+        """Return the movement manager for expressive actions."""
+        with self._lock:
+            app = self._app
+        if app is None:
+            return None
+        return getattr(app, "_movement_manager", None)
+
+    def get_motion_catalog(self) -> dict[str, Any]:
+        """Return available built-in emotion/dance names from the robot runtime."""
+        with self._lock:
+            app = self._app
+        if app is None:
+            return {"available": False, "emotions": [], "dances": []}
+
+        controller = getattr(app, "_controller", None)
+        getter = getattr(controller, "get_motion_catalog", None)
+        if not callable(getter):
+            return {"available": False, "emotions": [], "dances": []}
+
+        try:
+            raw = getter()
+        except Exception:
+            return {"available": False, "emotions": [], "dances": []}
+
+        if not isinstance(raw, dict):
+            return {"available": False, "emotions": [], "dances": []}
+        emotions = [str(name).strip() for name in raw.get("emotions", []) if str(name).strip()]
+        dances = [str(name).strip() for name in raw.get("dances", []) if str(name).strip()]
+        return {
+            "available": bool(raw.get("available")) and bool(emotions or dances),
+            "emotions": emotions,
+            "dances": dances,
+        }
+
+    def get_audio_device_status(self) -> dict[str, Any]:
+        with self._lock:
+            app = self._app
+        if app is None or not hasattr(app, "get_audio_device_status"):
+            return {"configured": False, "reason": "robot_runtime_unavailable"}
+        try:
+            return dict(app.get_audio_device_status())
+        except Exception:
+            return {"configured": False, "reason": "audio_status_unavailable"}
+
+    def movement_status(self) -> dict[str, Any]:
+        with self._lock:
+            app = self._app
+        if app is None:
+            return {
+                "available": False,
+                "control_queue_size": 0,
+                "primary_queue_size": 0,
+                "active_interrupting": False,
+                "active_move_type": "none",
+                "active_move_name": "",
+                "listening_mode": False,
+            }
+        manager = getattr(app, "_movement_manager", None)
+        if manager is None or not hasattr(manager, "status_snapshot"):
+            return {
+                "available": False,
+                "control_queue_size": int(getattr(app.control_queue, "qsize", lambda: 0)()),
+                "primary_queue_size": 0,
+                "active_interrupting": False,
+                "active_move_type": "none",
+                "active_move_name": "",
+                "listening_mode": False,
+            }
+        try:
+            snapshot = dict(manager.status_snapshot())
+        except Exception:
+            snapshot = {
+                "active": False,
+                "active_interrupting": False,
+                "active_move_type": "none",
+                "active_move_name": "",
+                "primary_queue_size": 0,
+                "listening_mode": False,
+            }
+        snapshot["available"] = True
+        snapshot["control_queue_size"] = int(getattr(app.control_queue, "qsize", lambda: 0)())
+        return snapshot
+
     def stop(self) -> None:
         self._status_poller_stop.set()
         with self._lock:
@@ -133,39 +225,55 @@ class RobotService:
                 self._thread.join(timeout=3.0)
             self._last_emitted_status = None
 
-    def enqueue_action(self, payload: dict[str, Any]) -> RobotActionResult:
+    def enqueue_action(
+        self,
+        payload: dict[str, Any],
+        *,
+        source: str = "robot",
+        bypass_rate_limit: bool = False,
+    ) -> RobotActionResult:
         self.start()
         action = str(payload.get("action", "")).strip()
         action_id = str(uuid.uuid4())
         now = time.monotonic()
-        with self._lock:
-            last = self._last_action_at.get(action, 0.0)
-            if now - last < self._config.robot_rate_limit_seconds:
-                reason = "Action rate limited"
-                self._record_action(action_id, action, payload, False, reason)
-                return RobotActionResult(accepted=False, action_id=action_id, reason=reason)
-            self._last_action_at[action] = now
+        if not bypass_rate_limit:
+            with self._lock:
+                last = self._last_action_at.get(action, 0.0)
+                if now - last < self._config.robot_rate_limit_seconds:
+                    reason = "Action rate limited"
+                    self._record_action(action_id, action, payload, False, reason, source=source)
+                    return RobotActionResult(accepted=False, action_id=action_id, reason=reason)
+                self._last_action_at[action] = now
         if action == "look_at" and not bool(payload.get("confirm")):
             reason = "look_at requires confirm=true"
-            self._record_action(action_id, action, payload, False, reason)
+            self._record_action(action_id, action, payload, False, reason, source=source)
             return RobotActionResult(accepted=False, action_id=action_id, reason=reason)
         if action == "speak":
             text = str(payload.get("text", ""))
             if len(text) >= self._config.robot_speak_confirm_threshold and not bool(payload.get("confirm")):
                 reason = "long speak requires confirm=true"
-                self._record_action(action_id, action, payload, False, reason)
+                self._record_action(action_id, action, payload, False, reason, source=source)
                 return RobotActionResult(accepted=False, action_id=action_id, reason=reason)
 
         ca = self._to_control_action(payload)
         if not ca:
             reason = f"Unsupported action: {action}"
-            self._record_action(action_id, action, payload, False, reason)
+            self._record_action(action_id, action, payload, False, reason, source=source)
             return RobotActionResult(accepted=False, action_id=action_id, reason=reason)
 
         ok = bool(self._app and self._app.enqueue(ca))
         reason = "" if ok else "robot runtime unavailable"
-        self._record_action(action_id, action, payload, ok, reason)
+        self._record_action(action_id, action, payload, ok, reason, source=source)
         return RobotActionResult(accepted=ok, action_id=action_id, reason=reason)
+
+    @staticmethod
+    def _safe_float(value: Any, default: float) -> float:
+        if value is None:
+            return float(default)
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return float(default)
 
     @staticmethod
     def _to_control_action(payload: dict[str, Any]) -> ControlAction | None:
@@ -179,16 +287,53 @@ class RobotService:
                     "x": float(payload.get("x", 0.35)),
                     "y": float(payload.get("y", 0.0)),
                     "z": float(payload.get("z", 0.1)),
-                    "duration": float(payload.get("duration", 1.0)),
+                    "duration": RobotService._safe_float(payload.get("duration"), 1.0),
                 },
             )
         if action == "antenna_feedback":
             return ControlAction(name="antenna_feedback", payload={"state": str(payload.get("state", "attention"))})
         if action == "speak":
             return ControlAction(name="speak", payload={"text": str(payload.get("text", ""))})
+        if action == "move_head":
+            return ControlAction(
+                name="move_head",
+                payload={
+                    "direction": str(payload.get("direction", "front")),
+                    "duration": RobotService._safe_float(payload.get("duration"), 0.5),
+                },
+            )
+        if action == "play_emotion":
+            return ControlAction(
+                name="play_emotion",
+                payload={
+                    "name": str(payload.get("name", "neutral")),
+                    "duration": RobotService._safe_float(payload.get("duration"), 5.0),
+                },
+            )
+        if action == "stop_emotion":
+            return ControlAction(name="stop_emotion")
+        if action == "dance":
+            return ControlAction(
+                name="dance",
+                payload={
+                    "name": str(payload.get("name", "default")),
+                    "duration": RobotService._safe_float(payload.get("duration"), 10.0),
+                },
+            )
+        if action == "stop_dance":
+            return ControlAction(name="stop_dance")
         return None
 
-    def _record_action(self, action_id: str, action: str, payload: dict[str, Any], accepted: bool, reason: str) -> None:
+    def _record_action(
+        self,
+        action_id: str,
+        action: str,
+        payload: dict[str, Any],
+        accepted: bool,
+        reason: str,
+        *,
+        source: str,
+    ) -> None:
         ts = datetime.now(timezone.utc).isoformat()
         level = "INFO" if accepted else "WARNING"
         conn = get_conn()
@@ -198,7 +343,7 @@ class RobotService:
                 INSERT INTO app_robot_actions(id, source, level, action, payload_json, accepted, reason, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (action_id, "robot", level, action, dump_json(payload), 1 if accepted else 0, reason, ts),
+                (action_id, source, level, action, dump_json(payload), 1 if accepted else 0, reason, ts),
             )
             conn.commit()
         finally:
@@ -210,6 +355,7 @@ class RobotService:
                 data={
                     "action_id": action_id,
                     "action": action,
+                    "source": source,
                     "accepted": accepted,
                     "level": level,
                     "reason": reason,

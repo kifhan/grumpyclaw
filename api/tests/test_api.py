@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from api.backend.robot_service import RobotActionResult
 from api.main import create_app
 
 
@@ -22,6 +23,14 @@ def test_healthz(client: TestClient) -> None:
     r = client.get("/api/v1/healthz")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+
+
+def test_public_config_includes_realtime_overlap_controls(client: TestClient) -> None:
+    r = client.get("/api/v1/config/public")
+    assert r.status_code == 200
+    body = r.json()
+    assert "realtime_talk_overlap_mode" in body
+    assert "realtime_post_playback_hold_seconds" in body
 
 
 def test_assistant_session_create_and_post(client: TestClient) -> None:
@@ -42,6 +51,14 @@ def test_robot_requires_confirm_for_look(client: TestClient) -> None:
     assert "confirm" in body["reason"]
 
 
+def test_robot_expressive_action_enum_is_accepted(client: TestClient) -> None:
+    r = client.post("/api/v1/robot/actions", json={"action": "dance", "name": "happy", "duration": 1.5})
+    assert r.status_code == 200
+    body = r.json()
+    assert "accepted" in body
+    assert "action_id" in body
+
+
 def test_runtime_heartbeat_controls(client: TestClient) -> None:
     r = client.get("/api/v1/runtime/status")
     assert r.status_code == 200
@@ -52,6 +69,29 @@ def test_runtime_heartbeat_controls(client: TestClient) -> None:
     body = r.json()
     assert "status" in body
     assert "trigger" in body
+
+
+def test_companion_endpoints(client: TestClient) -> None:
+    r = client.get("/api/v1/companion/config")
+    assert r.status_code == 200
+    assert "triggers" in r.json()
+
+    client.app.state.container.robot.enqueue_action = (  # type: ignore[method-assign]
+        lambda payload, source="robot", bypass_rate_limit=False: RobotActionResult(
+            accepted=True,
+            action_id="test-action",
+            reason="",
+        )
+    )
+
+    r = client.post("/api/v1/companion/events/simulate", json={"trigger": "looked_at"})
+    assert r.status_code == 200
+    assert r.json()["accepted"] is True
+    assert "status" in r.json()
+
+    r = client.get("/api/v1/companion/status")
+    assert r.status_code == 200
+    assert "detectors" in r.json()
 
 
 def test_old_chat_and_conversation_routes_removed(client: TestClient) -> None:

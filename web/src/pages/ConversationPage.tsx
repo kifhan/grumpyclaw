@@ -9,6 +9,36 @@ type TimelineEntry = {
   content: string;
 };
 
+type MotionState = {
+  ts: string;
+  action: string;
+  accepted: boolean;
+  reason: string;
+  actionId: string;
+} | null;
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function extractMotionState(payload: Record<string, unknown>): MotionState {
+  if (String(payload.name ?? "") !== "robot_action") return null;
+  const args = toRecord(payload.arguments);
+  const result = toRecord(payload.result);
+  const nested = toRecord(result.result);
+  const action = String(args.action ?? "");
+  const accepted = Boolean(nested.accepted);
+  const reason = String(nested.reason ?? "");
+  const actionId = String(nested.action_id ?? "");
+  return {
+    ts: String(payload.ts ?? new Date().toISOString()),
+    action,
+    accepted,
+    reason,
+    actionId,
+  };
+}
+
 export function ConversationPage() {
   const [status, setStatus] = useState<{
     running: boolean;
@@ -18,6 +48,11 @@ export function ConversationPage() {
     last_error?: string | null;
   } | null>(null);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [liveTranscript, setLiveTranscript] = useState<{ user: string; assistant: string }>({
+    user: "",
+    assistant: "",
+  });
+  const [lastMotion, setLastMotion] = useState<MotionState>(null);
   const [busy, setBusy] = useState(false);
 
   const loadStatus = useCallback(async () => {
@@ -32,10 +67,14 @@ export function ConversationPage() {
   const loadHistory = useCallback(async () => {
     try {
       const rows = await api.assistantRealtimeHistory(200);
+      const latestTranscript: { user: string; assistant: string } = { user: "", assistant: "" };
+      let latestMotion: MotionState = null;
       const mapped = rows.map((row) => {
         const payload = row.payload as Record<string, unknown>;
         const ts = String(payload.ts ?? row.created_at ?? "");
         if (row.event_type === "assistant.realtime.transcript") {
+          const role = payload.role === "user" ? "user" : "assistant";
+          latestTranscript[role] = String(payload.content ?? "");
           return {
             id: String(row.id),
             ts,
@@ -45,6 +84,8 @@ export function ConversationPage() {
           };
         }
         if (row.event_type === "assistant.tool") {
+          const motion = extractMotionState(payload);
+          if (motion) latestMotion = motion;
           return {
             id: String(row.id),
             ts,
@@ -62,8 +103,12 @@ export function ConversationPage() {
         };
       });
       setTimeline(mapped);
+      setLiveTranscript(latestTranscript);
+      setLastMotion(latestMotion);
     } catch {
       setTimeline([]);
+      setLiveTranscript({ user: "", assistant: "" });
+      setLastMotion(null);
     }
   }, []);
 
@@ -77,6 +122,8 @@ export function ConversationPage() {
 
     stream.addEventListener("assistant.realtime.transcript", (e) => {
       const payload = JSON.parse((e as MessageEvent).data) as { role?: string; content?: string; ts?: string };
+      const role = payload.role === "user" ? "user" : "assistant";
+      setLiveTranscript((prev) => ({ ...prev, [role]: payload.content ?? "" }));
       setTimeline((prev) => [
         ...prev,
         {
@@ -89,8 +136,23 @@ export function ConversationPage() {
       ]);
     });
 
+    stream.addEventListener("assistant.realtime.transcript.delta", (e) => {
+      const payload = JSON.parse((e as MessageEvent).data) as { role?: string; delta?: string };
+      const delta = payload.delta ?? "";
+      if (!delta) return;
+      const role = payload.role === "user" ? "user" : "assistant";
+      setLiveTranscript((prev) => ({ ...prev, [role]: prev[role] + delta }));
+    });
+
     stream.addEventListener("assistant.tool", (e) => {
-      const payload = JSON.parse((e as MessageEvent).data) as { name?: string; result?: unknown; ts?: string };
+      const payload = JSON.parse((e as MessageEvent).data) as {
+        name?: string;
+        result?: unknown;
+        ts?: string;
+        arguments?: unknown;
+      };
+      const motion = extractMotionState(payload as Record<string, unknown>);
+      if (motion) setLastMotion(motion);
       setTimeline((prev) => [
         ...prev,
         {
@@ -114,6 +176,7 @@ export function ConversationPage() {
 
   async function startRealtime() {
     setBusy(true);
+    setLiveTranscript({ user: "", assistant: "" });
     try {
       await api.assistantRealtimeStart();
       await loadStatus();
@@ -132,6 +195,12 @@ export function ConversationPage() {
     }
   }
 
+  function clearHistory() {
+    setTimeline([]);
+    setLiveTranscript({ user: "", assistant: "" });
+    setLastMotion(null);
+  }
+
   return (
     <div>
       <h2>Conversation</h2>
@@ -142,6 +211,38 @@ export function ConversationPage() {
           <button onClick={startRealtime} disabled={busy || !!status?.running}>Start Realtime</button>
           <button onClick={stopRealtime} disabled={busy || !status?.running}>Stop Realtime</button>
           <button onClick={() => loadHistory().catch(() => undefined)} disabled={busy}>Reload History</button>
+          <button
+            onClick={clearHistory}
+            disabled={busy || (timeline.length === 0 && !liveTranscript.user && !liveTranscript.assistant && !lastMotion)}
+          >
+            Clear History
+          </button>
+        </div>
+      </div>
+
+      <div className="panel">
+        <h4>Live transcript (streaming)</h4>
+        <div style={{ marginBottom: 8 }}>
+          <strong>User</strong>: {liveTranscript.user || "…"}
+        </div>
+        <div>
+          <strong>Assistant</strong>: {liveTranscript.assistant || "…"}
+        </div>
+        <hr />
+        <div>
+          <strong>Motion execution state</strong>:
+          {lastMotion ? (
+            <div>
+              <div>
+                action=<code>{lastMotion.action || "(empty)"}</code> status=
+                <code>{lastMotion.accepted ? "executed" : "rejected"}</code>
+              </div>
+              <div>reason: {lastMotion.reason || "(none)"}</div>
+              <div>action_id: {lastMotion.actionId || "(none)"} / ts: {lastMotion.ts}</div>
+            </div>
+          ) : (
+            <div>no motion events yet</div>
+          )}
         </div>
       </div>
 

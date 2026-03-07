@@ -126,6 +126,37 @@ class MovementManager:
     def set_listening_mode(self, listening: bool) -> None:
         self._listening_mode = listening
 
+    def status_snapshot(self) -> dict[str, Any]:
+        move = self._current_move
+        move_type = "none"
+        move_name = ""
+        interrupting = False
+        if isinstance(move, DanceMove):
+            move_type = "dance"
+            move_name = str(move.move_name)
+            interrupting = True
+        elif isinstance(move, EmotionMove):
+            move_type = "emotion"
+            move_name = str(move.emotion_name)
+            interrupting = True
+        elif isinstance(move, GotoPoseMove):
+            move_type = "goto_pose"
+            move_name = str(move.direction)
+            interrupting = True
+        elif isinstance(move, BreathingMove):
+            move_type = "breathing"
+            move_name = "breathing"
+
+        return {
+            "active": move is not None,
+            "active_interrupting": interrupting,
+            "active_move_type": move_type,
+            "active_move_name": move_name,
+            "primary_queue_size": self._primary_queue.qsize(),
+            "listening_mode": self._listening_mode,
+            "last_activity_monotonic": self._last_activity,
+        }
+
     def _get_primary_pose(self, t: float) -> PoseState | None:
         if self._current_move is None:
             try:

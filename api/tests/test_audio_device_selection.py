@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from grumpyreachy.app import _device_info, _find_device_index, _parse_device_preferences
+from grumpyreachy.config import DEFAULT_PREFERRED_INPUT_DEVICE, DEFAULT_PREFERRED_OUTPUT_DEVICE
 
 
 def test_parse_device_preferences() -> None:
@@ -56,3 +57,23 @@ def test_device_info_bounds() -> None:
         "max_output_channels": 0,
         "default_samplerate": 44100.0,
     }
+
+
+def test_default_preferences_prioritize_macbook_builtins() -> None:
+    devices = [
+        {"name": "Reachy Mini Audio", "max_input_channels": 2, "max_output_channels": 2},
+        {"name": "MacBook Pro Microphone", "max_input_channels": 1, "max_output_channels": 0},
+        {"name": "MacBook Pro Speakers", "max_input_channels": 0, "max_output_channels": 2},
+    ]
+    input_idx = _find_device_index(
+        devices,
+        io_type="input",
+        preferences=_parse_device_preferences(DEFAULT_PREFERRED_INPUT_DEVICE),
+    )
+    output_idx = _find_device_index(
+        devices,
+        io_type="output",
+        preferences=_parse_device_preferences(DEFAULT_PREFERRED_OUTPUT_DEVICE),
+    )
+    assert input_idx == 1
+    assert output_idx == 2

@@ -32,6 +32,13 @@ class RunState(enum.Enum):
     ERROR = "ERROR"
 
 
+def _resolve_reachy_media_backend(*, camera_enabled: bool, no_camera: bool) -> str:
+    """Choose Reachy media backend while preserving audio-only mode on no-camera setups."""
+    if no_camera or not camera_enabled:
+        return "default_no_video"
+    return "default"
+
+
 def _parse_device_preferences(raw: str) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
@@ -119,8 +126,27 @@ class GrumpyReachyApp:
         conn_ctx = nullcontext(None)
         connection_mode = "localhost_only" if self.config.reachy_mode == "lite" else "auto"
         if reachy_cls is not None:
+            media_backend = _resolve_reachy_media_backend(
+                camera_enabled=self.config.camera_enabled,
+                no_camera=self._no_camera,
+            )
+            reachy_kwargs: dict[str, Any] = {
+                "connection_mode": connection_mode,
+                "media_backend": media_backend,
+            }
             try:
-                conn_ctx = reachy_cls(connection_mode=connection_mode)
+                conn_ctx = reachy_cls(**reachy_kwargs)
+                if media_backend != "default":
+                    self.log.info("Reachy media backend override: %s", media_backend)
+            except TypeError as exc:
+                # Backward compatibility for older SDKs without media_backend kwarg.
+                if "media_backend" in str(exc):
+                    self.log.warning(
+                        "ReachyMini does not support media_backend kwarg; retrying with defaults"
+                    )
+                    conn_ctx = reachy_cls(connection_mode=connection_mode)
+                else:
+                    raise
             except Exception:
                 self.log.exception("Failed to instantiate ReachyMini; continuing without robot")
         else:
@@ -228,6 +254,35 @@ class GrumpyReachyApp:
             return
         if action.name == "speak":
             self._controller.speak(str(payload.get("text", "")))
+            return
+        if action.name == "move_head":
+            if self._movement_manager:
+                self._movement_manager.queue_head_direction(
+                    str(payload.get("direction", "front")),
+                    duration=float(payload.get("duration", 0.5)),
+                )
+            return
+        if action.name == "play_emotion":
+            if self._movement_manager:
+                self._movement_manager.queue_emotion(
+                    str(payload.get("name", "neutral")),
+                    duration=float(payload.get("duration", 5.0)),
+                )
+            return
+        if action.name == "stop_emotion":
+            if self._movement_manager:
+                self._movement_manager.clear_emotion_queue()
+            return
+        if action.name == "dance":
+            if self._movement_manager:
+                self._movement_manager.queue_dance(
+                    str(payload.get("name", "default")),
+                    duration=float(payload.get("duration", 10.0)),
+                )
+            return
+        if action.name == "stop_dance":
+            if self._movement_manager:
+                self._movement_manager.clear_dance_queue()
             return
         self.log.debug("Unknown action ignored: %s", action.name)
 
